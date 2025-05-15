@@ -1,3 +1,8 @@
+import torch
+import torch_xla
+import torch_xla.core.xla_model as xm
+import torch_xla.distributed.xla_multiprocessing as xmp
+
 from datasets import load_dataset
 from peft import LoraConfig, get_peft_model
 from transformers import AutoModelForCausalLM, Trainer, TrainingArguments, AutoTokenizer
@@ -10,8 +15,8 @@ config_file = "config.yaml"
 with open(config_file, "r") as file:
     config = yaml.safe_load(file)
 
+# Load config values
 dsn = config["TTS_dataset"]
-
 model_name = config["model_name"]
 run_name = config["run_name"]
 project_name = config["project_name"]
@@ -23,52 +28,59 @@ pad_token = config["pad_token"]
 number_processes = config["number_processes"]
 learning_rate = config["learning_rate"]
 
+# LoRA configuration
 lora_rank = 32
 lora_alpha = 64
 lora_dropout = 0.0
 
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForCausalLM.from_pretrained(model_name, attn_implementation="flash_attention_2")
+def train_fn(rank):
+    device = xm.xla_device()
 
-lora_config = LoraConfig(
-    r=lora_rank,
-    lora_alpha=lora_alpha,
-    lora_dropout=lora_dropout,
-    target_modules=["q_proj", "k_proj", "v_proj",  "o_proj", "gate_proj", "down_proj", "up_proj"],
-    bias="none",
-    modules_to_save=["lm_head", "embed_tokens"], # Optional to train the embeddings and lm head
-    task_type="CAUSAL_LM",
-    use_rslora=True,
-)
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
 
-model = get_peft_model(model, lora_config)
+    lora_config = LoraConfig(
+        r=lora_rank,
+        lora_alpha=lora_alpha,
+        lora_dropout=lora_dropout,
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "down_proj", "up_proj"],
+        bias="none",
+        modules_to_save=["lm_head", "embed_tokens"],
+        task_type="CAUSAL_LM",
+        use_rslora=True,
+    )
 
-ds = load_dataset(dsn, split="train") 
+    model = get_peft_model(model, lora_config)
 
-wandb.init(project=project_name, name = run_name)
+    ds = load_dataset(dsn, split="train")
 
-training_args = TrainingArguments(
-    overwrite_output_dir=True,
-    num_train_epochs=epochs,
-    per_device_train_batch_size=batch_size, 
-    logging_steps=1,
-    bf16=True,
-    output_dir=f"./{base_repo_id}",
-    report_to="wandb", 
-    save_steps=save_steps,
-    remove_unused_columns=True, 
-    learning_rate=learning_rate,
-)
+    wandb.init(project=project_name, name=f"{run_name}-{rank}")
 
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    train_dataset=ds,
-)
+    training_args = TrainingArguments(
+        overwrite_output_dir=True,
+        num_train_epochs=epochs,
+        per_device_train_batch_size=batch_size,
+        logging_steps=1,
+        bf16=True,
+        output_dir=f"./{base_repo_id}",
+        report_to="wandb",
+        save_steps=save_steps,
+        remove_unused_columns=True,
+        learning_rate=learning_rate,
+    )
 
-trainer.train()
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=ds,
+        tokenizer=tokenizer
+    )
 
-merged_model = model.merge_and_unload()
+    trainer.train()
 
-merged_model.save_pretrained(f"./{base_repo_id}/merged")
-tokenizer.save_pretrained(f"./{base_repo_id}/merged")
+    merged_model = model.merge_and_unload()
+    merged_model.save_pretrained(f"./{base_repo_id}/merged")
+    tokenizer.save_pretrained(f"./{base_repo_id}/merged")
+
+if __name__ == '__main__':
+    xmp.spawn(train_fn, args=(), nprocs=number_processes, start_method='fork')

@@ -1,21 +1,21 @@
 # Model
-model_name: "meta-llama/Llama-3.2-3B-Instruct"  # Replace with your base model must be compatible with the tokenizer and transformers library
+model_name: "meta-llama/Llama-3.2-3B-Instruct"         # Must support BF16 or FP32 and be Torch-compatible
 tokenizer_name: "meta-llama/Llama-3.2-3B-Instruct"
 
 # Training Args
 epochs: 1
-batch_size: 1
-number_processes: 8
-pad_token: 128263
+batch_size: 1                                          # Per device; will be multiplied by number_processes
+number_processes: 8                                    # TPU v5p has 8 cores per chip
+pad_token: 128263                                      # Should match tokenizer.pad_token_id or custom token
 save_steps: 12000
 learning_rate: 5.0e-5
-ratio: <see read me to choose value>
+ratio: 2                                               # REPLACE <see read me...> with an actual int value
 
-# Datasets
-text_QA_dataset: <speech input-ids>
-TTS_dataset: <text-input-ids>
+# Datasets (Hugging Face datasets or local path)
+text_QA_dataset: "orpheus/text_input_ids"              # Replace with actual dataset ID or local path
+TTS_dataset: "orpheus/speech_input_ids"
 
-# Naming and paths
+# Logging / Checkpointing
 save_folder: "checkpoints"
 project_name: "pretrain-orpheus"
 run_name: "pretrain-orpheus"

@@ -1,19 +1,15 @@
 import argparse
-
 import silentcipher
 import torch
 import torchaudio
 
 ORPHEUS_WATERMARK = [121, 124, 146, 56, 201]
 
-
 def cli_check_audio() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--audio_path", type=str, required=True)
     args = parser.parse_args()
-
     check_audio_from_file(args.audio_path)
-
 
 def load_watermarker(device: str = "cuda") -> silentcipher.server.Model:
     model = silentcipher.get_model(
@@ -47,28 +43,20 @@ def verify(
     result = watermarker.decode_wav(watermarked_audio_44khz, 44100, phase_shift_decoding=True)
 
     is_watermarked = result["status"]
-    if is_watermarked:
-        is_orpheus_watermarked = result["messages"][0] == watermark_key
-    else:
-        is_orpheus_watermarked = False
-
+    is_orpheus_watermarked = result["messages"][0] == watermark_key if is_watermarked else False
     return is_watermarked and is_orpheus_watermarked
 
 def check_audio_from_file(audio_path: str) -> None:
     watermarker = load_watermarker(device="cuda")
-
     audio_array, sample_rate = load_audio(audio_path)
     is_watermarked = verify(watermarker, audio_array, sample_rate, ORPHEUS_WATERMARK)
-
     outcome = "Watermarked" if is_watermarked else "Not watermarked"
     print(f"{outcome}: {audio_path}")
-
 
 def load_audio(audio_path: str) -> tuple[torch.Tensor, int]:
     audio_array, sample_rate = torchaudio.load(audio_path)
     audio_array = audio_array.mean(dim=0)
     return audio_array, int(sample_rate)
-
 
 if __name__ == "__main__":
     cli_check_audio()

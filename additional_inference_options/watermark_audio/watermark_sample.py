@@ -26,17 +26,13 @@ def main():
 
         duration = total_frames / wf.getframerate()
         end_time = time.monotonic()
-        print(f"It took {end_time - start_time} seconds to generate {duration:.2f} seconds of audio")
-
-if __name__ == '__main__':
-    main()
+        print(f"It took {end_time - start_time:.2f} seconds to generate {duration:.2f} seconds of audio")
 
     # Load written audio and move to CUDA
     audio_array, sample_rate = torchaudio.load("output.wav")
     audio_array = audio_array.mean(dim=0).to("cuda")
 
     # Apply watermark
-    watermarker = load_watermarker(device="cuda")
     watermarked_audio, wm_sample_rate = watermark(watermarker, audio_array, sample_rate, ORPHEUS_WATERMARK)
     watermarked_audio = watermarked_audio.cpu()
 
@@ -45,9 +41,12 @@ if __name__ == '__main__':
         wf.setnchannels(1)
         wf.setsampwidth(2)
         wf.setframerate(wm_sample_rate)
-        audio_bytes = (watermarked_audio.cpu().numpy() * 32767).astype('int16').tobytes()
+        audio_bytes = (watermarked_audio.numpy() * 32767).astype('int16').tobytes()
         wf.writeframes(audio_bytes)
 
     # Verify watermark
     is_watermarked = verify(watermarker, watermarked_audio, wm_sample_rate, ORPHEUS_WATERMARK)
     print(f"Watermark verification: {'Success' if is_watermarked else 'Failed'}")
+
+if __name__ == '__main__':
+    main()
